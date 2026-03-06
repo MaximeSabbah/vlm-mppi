@@ -1,5 +1,5 @@
 """
-VLM Planner: wraps Qwen2.5-VL for robotic task planning.
+VLM Planner: wraps Qwen VLMs (Qwen2.5-VL / Qwen3-VL / Qwen3.5) for robotic task planning.
 
 Supports two modes:
   1. Local inference via transformers (default)
@@ -36,20 +36,25 @@ class VLMPlanner:
     # ── Model loading ────────────────────────────────────────────
 
     def _init_local_model(self):
-        """Load the model locally with transformers."""
+        """Load the model locally with transformers.
+
+        Uses AutoModelForImageTextToText so the same code works for
+        Qwen2.5-VL, Qwen3-VL, Qwen3.5, and future Qwen VLM families.
+        Requires transformers >= 4.57.0 for Qwen3-VL / Qwen3.5.
+        """
         import torch
-        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+        from transformers import AutoModelForImageTextToText, AutoProcessor
 
         dtype_map = {
             "float16": torch.float16,
             "bfloat16": torch.bfloat16,
             "float32": torch.float32,
         }
-        dtype = dtype_map.get(self.config.torch_dtype, torch.float16)
+        dtype = dtype_map.get(self.config.torch_dtype, torch.bfloat16)
 
-        logger.info("Loading %s (this may download ~15 GB on first run)...", self.config.model_id)
+        logger.info("Loading %s (this may download weights on first run)...", self.config.model_id)
 
-        self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        self._model = AutoModelForImageTextToText.from_pretrained(
             self.config.model_id,
             torch_dtype=dtype,
             device_map=self.config.device_map,

@@ -4,12 +4,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# ── Qwen VLM model options ────────────────────────────────────────────────────
+#
+# All variants load transparently via AutoModelForImageTextToText.
+#
+# Qwen2.5-VL  (previous gen, transformers >= 4.45)
+#   "Qwen/Qwen2.5-VL-3B-Instruct"   ~8 GB VRAM
+#   "Qwen/Qwen2.5-VL-7B-Instruct"   ~16 GB VRAM
+#   "Qwen/Qwen2.5-VL-32B-Instruct"  ~70 GB VRAM
+#   "Qwen/Qwen2.5-VL-72B-Instruct"  ~150 GB VRAM
+#
+# Qwen3-VL    (dedicated VLM, transformers >= 4.57)  ← default
+#   "Qwen/Qwen3-VL-2B-Instruct"          ~6 GB VRAM
+#   "Qwen/Qwen3-VL-4B-Instruct"          ~10 GB VRAM
+#   "Qwen/Qwen3-VL-8B-Instruct"          ~18 GB VRAM  ← default
+#   "Qwen/Qwen3-VL-32B-Instruct"         ~70 GB VRAM
+#   "Qwen/Qwen3-VL-30B-A3B-Instruct"     MoE, ~30 GB active
+#   "Qwen/Qwen3-VL-235B-A22B-Instruct"   MoE, large cluster
+#
+# Qwen3.5     (latest unified text+vision, transformers >= 4.57)
+#   "Qwen/Qwen3.5-4B-Instruct"           ~10 GB VRAM
+#   "Qwen/Qwen3.5-9B-Instruct"           ~20 GB VRAM
+#   "Qwen/Qwen3.5-27B-Instruct"          ~55 GB VRAM
+#   "Qwen/Qwen3.5-35B-A3B-Instruct"      MoE, ~35 GB active
+#   "Qwen/Qwen3.5-397B-A17B-Instruct"    MoE, large cluster
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @dataclass
 class VLMConfig:
     """Configuration for the VLM planner layer."""
 
-    model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct"
-    torch_dtype: str = "float16"     # "float16", "bfloat16", or "float32"
+    model_id: str = "Qwen/Qwen3-VL-8B-Instruct"
+    torch_dtype: str = "bfloat16"    # "float16", "bfloat16", or "float32"
     device_map: str = "auto"
     max_new_tokens: int = 512
     temperature: float = 0.1

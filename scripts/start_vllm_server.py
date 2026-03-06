@@ -20,7 +20,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description="Launch vLLM server")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
