@@ -131,13 +131,13 @@ vlm-mppi/
 ├── requirements.txt                 # Core dependencies
 ├── requirements-vllm.txt            # Optional: vLLM for fast serving
 ├── flake.nix                        # Nix flake for reproducible env
-├── flake.lock
 ├── pyproject.toml                   # Project metadata
 ├── examples/
 │   ├── 01_test_vlm_basic.py         # Minimal VLM test
 │   ├── 02_vlm_keypoint_planner.py   # IKER-style keypoint planning
 │   ├── 03_vlm_client_vllm.py        # Query vLLM server
-│   └── 04_vlm_mppi_loop.py          # Full hierarchical loop (sketch)
+│   ├── 04_vlm_mppi_loop.py          # Full hierarchical loop (sketch)
+│   └── 05_demo_handover.py          # Handover demo with cost reflection
 ├── scripts/
 │   └── start_vllm_server.py         # Launch vLLM OpenAI-compat server
 ├── prompts/
@@ -148,11 +148,12 @@ vlm-mppi/
 │   ├── vlm_planner.py               # VLM wrapper class
 │   ├── keypoint_utils.py            # Keypoint projection & overlay
 │   ├── mppi_interface.py            # Bridge between VLM output and MPPI
+│   ├── cost_reflection.py           # Eureka-inspired execution feedback
 │   └── config.py                    # Model paths, default parameters
 ├── tests/
 │   └── test_vlm_output_parsing.py   # Unit tests for JSON parsing
 └── docs/
-    ├── architecture.md              # Detailed design document
+    ├── architecture.md              # Design doc with demo proposal
     ├── nix-setup.md                 # Nix installation guide
     └── licensing.md                 # Full licensing analysis
 ```
@@ -160,9 +161,10 @@ vlm-mppi/
 ## Related Work
 
 - [COSMIK-MPPI](https://exquisite-parfait-ffa925.netlify.app) — Collision avoidance with CaT for MPPI in human environments
+- [Eureka](https://eureka-research.github.io) (ICLR 2024) — LLM-powered evolutionary reward design (inspires our cost reflection)
 - [VLMPC](https://arxiv.org/abs/2407.09829) (RSS 2024) — VLM integrated into MPC for manipulation
 - [VoxPoser](https://voxposer.github.io/) (CoRL 2023) — LLM + VLM composing 3D value maps for planning
-- [IKER](https://iker-robot.github.io/) — VLM-generated iterative keypoint rewards for real-to-sim-to-real
+- [IKER](https://iker-robot.github.io/) — VLM-generated iterative keypoint rewards (inspires our keypoint interface)
 - [SayCan](https://say-can.github.io/) — LLM grounding in robotic affordances
 
 ## Citation
