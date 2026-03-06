@@ -1,0 +1,4 @@
+# Optional: vLLM for production-grade inference (Apache 2.0)
+# Install AFTER core requirements
+vllm>=0.6.0
+openai>=1.0.0       # client library for vLLM's OpenAI-compatible API

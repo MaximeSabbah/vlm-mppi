@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vlm-mppi"
+version = "0.1.0"
+description = "VLM high-level planner for COSMIK-MPPI safe human-robot interaction"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1.0",
+    "torchvision>=0.16.0",
+    "transformers>=4.45.0",
+    "accelerate>=0.26.0",
+    "qwen-vl-utils>=0.0.8",
+    "Pillow>=10.0.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+vllm = ["vllm>=0.6.0", "openai>=1.0.0"]
+dev = ["pytest>=7.0", "ruff>=0.4.0"]
+
+[tool.setuptools.packages.find]
+include = ["vlm_mppi*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
