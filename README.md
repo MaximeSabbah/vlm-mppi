@@ -1,181 +1,148 @@
-# VLM-MPPI: Vision-Language Model Planning for Safe Human-Robot Interaction
+# VLM-MPPI
 
-A hierarchical control framework combining a Vision-Language Model (VLM) for high-level semantic planning with [COSMIK-MPPI](https://exquisite-parfait-ffa925.netlify.app) for safe, real-time collision avoidance in human-shared workspaces.
+Embodied-R1 spatial reasoning for model-predictive robot control.
+
+This repo provides a clean Python interface to [Embodied-R1](https://github.com/pickxiguapi/Embodied-R1) (Yuan et al., ICLR 2026), a 3B vision-language model that outputs precise spatial coordinates for robotic manipulation. The goal is to use these coordinates as task-space targets for MPC/MPPI controllers, bypassing learned action decoders entirely.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│               VLM Planner (~1-5 Hz)                     │
-│  Qwen2.5-VL-7B-Instruct (Apache 2.0)                   │
-│  Input:  RGB image + language instruction + keypoints   │
-│  Output: structured task plan (target poses, semantic   │
-│          constraints, safety parameters)                │
-└───────────────────────┬─────────────────────────────────┘
-                        │ T_goal, constraints, margins
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│            COSMIK-MPPI Controller (50 Hz)               │
-│  Input:  T_goal + RT-COSMIK human capsules              │
-│  Output: joint torques with CaT collision avoidance     │
-└─────────────────────────────────────────────────────────┘
+Camera RGB-D + language instruction
+         │
+         ▼
+┌──────────────────────────────┐
+│  Embodied-R1 (3B, frozen)    │  ~1-3 Hz
+│                              │
+│  Outputs per ability:        │
+│  • OFG → grasp point (u,v)  │
+│  • RRG → place target (u,v) │
+│  • VTG → trajectory sketch  │
+│  • REG → object location    │
+└────────────┬─────────────────┘
+             │ pixel coordinates
+             ▼
+┌──────────────────────────────┐
+│  2D → 3D projection         │  depth + camera intrinsics
+└────────────┬─────────────────┘
+             │ SE(3) targets
+             ▼
+┌──────────────────────────────┐
+│  MPC / MPPI (your stack)     │  50-1000 Hz
+│  (not implemented yet)       │
+└──────────────────────────────┘
 ```
 
-## Licensing
+## Setup
 
-Every dependency in this project uses a **commercially permissive license** (Apache 2.0, BSD, MIT), making it safe for proprietary products and IP filings.
-
-| Component | License |
-|-----------|---------|
-| Qwen2.5-VL-7B-Instruct | Apache 2.0 |
-| Qwen2.5-VL-32B-Instruct | Apache 2.0 |
-| Qwen3-VL (all sizes) | Apache 2.0 |
-| PyTorch | BSD-3 |
-| Transformers (HuggingFace) | Apache 2.0 |
-| vLLM | Apache 2.0 |
-| Pinocchio | BSD-2 |
-| Crocoddyl | BSD-3 |
-
-## Hardware Requirements
-
-**Minimum (Qwen2.5-VL-7B, 4-bit quantized):**
-- GPU: 1× NVIDIA with ≥ 10 GB VRAM (RTX 3080, RTX 4070, etc.)
-- RAM: 16 GB
-- Disk: ~8 GB for quantized weights
-
-**Recommended (Qwen2.5-VL-7B, float16):**
-- GPU: 1× NVIDIA with ≥ 16 GB VRAM (RTX 4090, A5000)
-- RAM: 32 GB
-- Disk: ~15 GB for model weights
-
-**For Qwen2.5-VL-32B (upgrade path):**
-- GPU: 1× 48 GB (A6000) or 2× 24 GB
-- With 4-bit quantization: 1× 24 GB GPU
-
-## Installation
-
-### Option A: Python venv (recommended)
+Requires Python 3.10+ and a CUDA-capable GPU with ≥8 GB VRAM.
 
 ```bash
-# Clone the repository
-git clone https://github.com/<your-org>/vlm-mppi.git
+git clone https://github.com/MaximeSabbah/vlm-mppi.git
 cd vlm-mppi
 
-# Create and activate virtual environment
-python3.10 -m venv .venv
+# Option A: uv (recommended, fast)
+pip install uv
+uv venv .venv --python 3.11
 source .venv/bin/activate
+uv pip install -e ".[dev]"
 
-# Install dependencies
-pip install -r requirements.txt
-
-# (Optional) Install with vLLM for fast inference
-pip install -r requirements-vllm.txt
+# Option B: plain pip
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-### Option B: Nix (reproducible builds)
-
+Verify:
 ```bash
-# Enter the development shell
-nix develop
-
-# Or build and run directly
-nix run .#test-vlm
+python -c "from vlm_mppi.model import EmbodiedR1; print('OK')"
+pytest  # runs parsing tests (no GPU needed)
 ```
 
-See [docs/nix-setup.md](docs/nix-setup.md) for details on the Nix flake.
+## Usage
 
-### Verify installation
-
+### CLI
 ```bash
-python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
-python -c "from transformers import Qwen2_5_VLForConditionalGeneration; print('Qwen2.5-VL OK')"
+# Run Embodied-R1 on any image
+python -m vlm_mppi.cli scene.png "pick up the red cup" --save results.png
+
+# Choose specific abilities
+python -m vlm_mppi.cli scene.png "put the plate in the sink" --abilities OFG RRG VTG
 ```
 
-## Quick Start
+### Python API
+```python
+from vlm_mppi.model import EmbodiedR1, Ability
 
-### 1. Test the VLM on a scene image
+model = EmbodiedR1.load()
 
-```bash
-# Place any scene photo as scene.jpg (or pass a path)
-python examples/01_test_vlm_basic.py --image scene.jpg
+# Single ability
+result = model.point("scene.png", "pick up the mug by the handle", Ability.OFG)
+print(result.reasoning)   # chain-of-thought explanation
+print(result.points_px)   # [(312.5, 201.3)]
+
+# All abilities at once
+results = model.point_all("scene.png", "put the red block on the yellow block")
+for ability, r in results.items():
+    print(f"{ability.value}: {r.points_px}")
 ```
 
-### 2. Keypoint-based planning (IKER-style)
-
-```bash
-python examples/02_vlm_keypoint_planner.py --image scene.jpg
+### Visualization
+```python
+from vlm_mppi.viz import draw_results
+draw_results("scene.png", results, save_path="output.png")
 ```
 
-### 3. Fast inference with vLLM server
+### 2D → 3D projection (when you have depth)
+```python
+from vlm_mppi.projection import project_to_3d
+from vlm_mppi.config import CameraConfig
 
-```bash
-# Terminal 1: start the server
-python scripts/start_vllm_server.py
-
-# Terminal 2: query it
-python examples/03_vlm_client_vllm.py --image scene.jpg --instruction "pick up the red cup"
+points_3d = project_to_3d(
+    result.points_px,
+    depth_image,               # (H, W) numpy array in meters
+    CameraConfig(fx=615, fy=615, cx=320, cy=240),
+    T_cam_to_base=np.eye(4),  # camera-to-robot transform
+)
 ```
 
-### 4. Full VLM-MPPI loop (requires COSMIK-MPPI)
-
-```bash
-python examples/04_vlm_mppi_loop.py --instruction "place the cup near the human's left hand"
-```
-
-## Project Structure
+## Project structure
 
 ```
 vlm-mppi/
-├── README.md
-├── LICENSE                          # Apache 2.0
-├── requirements.txt                 # Core dependencies
-├── requirements-vllm.txt            # Optional: vLLM for fast serving
-├── flake.nix                        # Nix flake for reproducible env
-├── pyproject.toml                   # Project metadata
-├── examples/
-│   ├── 01_test_vlm_basic.py         # Minimal VLM test
-│   ├── 02_vlm_keypoint_planner.py   # IKER-style keypoint planning
-│   ├── 03_vlm_client_vllm.py        # Query vLLM server
-│   ├── 04_vlm_mppi_loop.py          # Full hierarchical loop (sketch)
-│   └── 05_demo_handover.py          # Handover demo with cost reflection
-├── scripts/
-│   └── start_vllm_server.py         # Launch vLLM OpenAI-compat server
-├── prompts/
-│   ├── single_step.txt              # Prompt for single-step tasks
-│   └── multi_step.txt               # Prompt for iterative replanning
 ├── vlm_mppi/
 │   ├── __init__.py
-│   ├── vlm_planner.py               # VLM wrapper class
-│   ├── keypoint_utils.py            # Keypoint projection & overlay
-│   ├── mppi_interface.py            # Bridge between VLM output and MPPI
-│   ├── cost_reflection.py           # Eureka-inspired execution feedback
-│   └── config.py                    # Model paths, default parameters
+│   ├── model.py          # EmbodiedR1 wrapper + output parsing
+│   ├── viz.py            # matplotlib visualization
+│   ├── projection.py     # 2D → 3D back-projection
+│   ├── config.py         # dataclass configs
+│   └── cli.py            # command-line interface
+├── examples/
+│   └── 01_test_embodied_r1.py
 ├── tests/
-│   └── test_vlm_output_parsing.py   # Unit tests for JSON parsing
-└── docs/
-    ├── architecture.md              # Design doc with demo proposal
-    ├── nix-setup.md                 # Nix installation guide
-    └── licensing.md                 # Full licensing analysis
+│   └── test_parsing.py   # unit tests (no GPU)
+├── data/sample_images/   # put test images here
+├── outputs/              # generated visualizations
+└── pyproject.toml
 ```
 
-## Related Work
+## Hardware
 
-- [COSMIK-MPPI](https://exquisite-parfait-ffa925.netlify.app) — Collision avoidance with CaT for MPPI in human environments
-- [Eureka](https://eureka-research.github.io) (ICLR 2024) — LLM-powered evolutionary reward design (inspires our cost reflection)
-- [VLMPC](https://arxiv.org/abs/2407.09829) (RSS 2024) — VLM integrated into MPC for manipulation
-- [VoxPoser](https://voxposer.github.io/) (CoRL 2023) — LLM + VLM composing 3D value maps for planning
-- [IKER](https://iker-robot.github.io/) — VLM-generated iterative keypoint rewards (inspires our keypoint interface)
-- [SayCan](https://say-can.github.io/) — LLM grounding in robotic affordances
+| Setup | GPU | Notes |
+|-------|-----|-------|
+| Minimum | 8 GB VRAM (RTX 3070) | float16, ~2s per query |
+| Comfortable | 16 GB (RTX 4090, A5000) | fast inference |
+| CPU only | none | ~30s per query, functional for testing |
 
-## Citation
+## Pointing abilities
 
-If you use this work, please cite:
+| Ability | Question answered | Output |
+|---------|-------------------|--------|
+| **OFG** | Where to grasp? | Functional affordance point (handle, rim, edge) |
+| **RRG** | Where to place? | Target region in free space |
+| **REG** | Where is the object? | Point on the referred object |
+| **VTG** | How to move? | Sequence of waypoints (trajectory sketch) |
 
-```bibtex
-@misc{vlm-mppi2026,
-  title={VLM-MPPI: Vision-Language Model Planning for Safe Human-Robot Interaction},
-  author={TODO},
-  year={2026},
-  url={https://github.com/<your-org>/vlm-mppi}
-}
-```
+## References
+
+- [Embodied-R1](https://arxiv.org/abs/2508.13998) — Yuan et al., ICLR 2026
+- [Eureka](https://eureka-research.github.io) — LLM-powered reward design (inspires cost function generation)

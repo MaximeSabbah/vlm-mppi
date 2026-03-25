@@ -24,7 +24,4 @@ Thumbs.db
 
 # Logs & outputs
 *.log
-outputs/
 
-# Nix
-result
