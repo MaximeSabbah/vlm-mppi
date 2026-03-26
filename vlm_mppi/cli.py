@@ -17,36 +17,28 @@ def main(argv: list[str] | None = None) -> None:
         description="Test Embodied-R1 spatial reasoning on a scene image."
     )
     parser.add_argument("image", type=Path, help="Path to an RGB image")
-    parser.add_argument("instruction", type=str, help="Task instruction (e.g. 'pick up the red cup')")
+    parser.add_argument("instruction", type=str, help="Task instruction")
     parser.add_argument(
         "--abilities",
         nargs="+",
         choices=["OFG", "RRG", "VTG", "REG"],
         default=["OFG", "RRG", "VTG"],
-        help="Which pointing abilities to run (default: OFG RRG VTG)",
     )
-    parser.add_argument("--save", type=Path, default=None, help="Save visualization to this path")
-    parser.add_argument("--no-show", action="store_true", help="Don't display the plot")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Print full model output")
-    parser.add_argument(
-        "--offline",
-        action="store_true",
-        help="Load model from local HuggingFace cache without network checks",
-    )
+    parser.add_argument("--save", type=Path, default=None)
+    parser.add_argument("--no-show", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--offline", action="store_true",
+                        help="Skip HuggingFace network checks (use local cache)")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s",
+                        datefmt="%H:%M:%S")
 
     if not args.image.exists():
         print(f"Error: image not found: {args.image}", file=sys.stderr)
         sys.exit(1)
 
     abilities = [Ability(a) for a in args.abilities]
-
     model = EmbodiedR1.load(ModelConfig(local_files_only=args.offline))
     results = model.point_all(args.image, args.instruction, abilities)
 

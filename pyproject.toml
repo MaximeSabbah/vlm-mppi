@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.4"]
+quant = ["bitsandbytes>=0.43"]          # 4-bit NF4: pip install -e ".[quant]"
 vllm = ["vllm>=0.6"]
 
 [project.scripts]

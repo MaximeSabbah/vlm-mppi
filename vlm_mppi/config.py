@@ -11,11 +11,14 @@ class ModelConfig:
     model_id: str = "IffYuan/Embodied-R1-3B-v1"
     torch_dtype: str = "auto"
     device_map: str = "auto"
-    max_new_tokens: int = 4096       # official default (model needs room for <think> block)
-    repetition_penalty: float = 1.05 # official default; prevents token-level repetition
-    flash_attn2: bool = False        # enable Flash Attention 2 (requires nvcc + flash-attn package)
-    torch_compile: bool = False      # torch.compile for ~20-40% speedup (no extra deps, slow first run)
-    local_files_only: bool = False   # set True to skip HuggingFace network checks
+    max_new_tokens: int = 512            # actual outputs are 70-130 tokens; 512 is a safe cap
+    repetition_penalty: float = 1.05
+    load_in_4bit: bool = True            # NF4 quantization: ~2-3× faster decoding, needs bitsandbytes
+    flash_attn2: bool = False            # requires nvcc matching torch's CUDA version + flash-attn
+    use_sdpa: bool = True               # PyTorch built-in scaled dot-product attention (no extra deps)
+    torch_compile: bool = True           # ~20-40% speedup after first (slow ~2min) compilation run
+    local_files_only: bool = False       # skip HuggingFace network checks after first download
+    max_image_pixels: int | None = None  # override processor default (None = use model default)
 
 
 @dataclass
