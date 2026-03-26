@@ -33,7 +33,7 @@ class Ability(str, Enum):
 # Coordinates are in pixel space (not normalised).
 PROMPTS: dict[Ability, str] = {
     Ability.REG: (
-        "Provide one or more points coordinate of objects region {instruction}. "
+        "Provide one or more points coordinate of objects region his sentence describes: {instruction}. "
         "The results are presented in a format <point>[[x1,y1], [x2,y2], ...]</point>. "
         "You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
         "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags. "
