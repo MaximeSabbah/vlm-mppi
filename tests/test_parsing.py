@@ -2,64 +2,69 @@
 
 import pytest
 
-from vlm_mppi.model import Ability, _parse_output
+from vlm_mppi.model import Ability, PointingResult, _parse_output
 
 
 class TestParseOutput:
-    """Test coordinate extraction from model text output."""
+    """Validate coordinate extraction from the official output format:
+    <think> reasoning </think><answer><point>[[x1,y1], [x2,y2], ...]</point></answer>
+    Coordinates are in pixel space (not normalised).
+    """
 
-    def test_point_tag_format(self):
-        raw = "I see a red cup on the table. <point>320, 450</point>"
-        result = _parse_output(raw, Ability.OFG, img_w=640, img_h=480)
+    def test_canonical_format(self):
+        raw = (
+            "<think>The bolt head is at the top of the tool.</think>"
+            "<answer><point>[[320, 240]]</point></answer>"
+        )
+        result = _parse_output(raw, Ability.OFG)
         assert result.n_points == 1
-        u, v = result.points_px[0]
-        assert abs(u - 0.320 * 640) < 0.1
-        assert abs(v - 0.450 * 480) < 0.1
+        assert result.points_px[0] == (320.0, 240.0)
 
-    def test_parenthesis_format(self):
-        raw = "The trace goes through (100, 200) then (300, 400) then (500, 600)"
-        result = _parse_output(raw, Ability.VTG, img_w=1000, img_h=1000)
+    def test_multi_point(self):
+        raw = (
+            "<think>Trajectory from block to target.</think>"
+            "<answer><point>[[100, 200], [150, 180], [200, 160]]</point></answer>"
+        )
+        result = _parse_output(raw, Ability.VTG)
         assert result.n_points == 3
-        assert abs(result.points_px[0][0] - 100.0) < 0.1
-        assert abs(result.points_px[2][1] - 600.0) < 0.1
-
-    def test_no_points(self):
-        raw = "I cannot determine the grasp point from this image."
-        result = _parse_output(raw, Ability.OFG, img_w=640, img_h=480)
-        assert result.n_points == 0
-        assert not result.has_points
+        assert result.points_px[0] == (100.0, 200.0)
+        assert result.points_px[2] == (200.0, 160.0)
 
     def test_reasoning_extracted(self):
-        raw = "The mug handle faces right. I should grasp from the side. <point>500, 300</point>"
-        result = _parse_output(raw, Ability.OFG, img_w=640, img_h=480)
+        raw = (
+            "<think>The mug handle faces right so grasp from the side.</think>"
+            "<answer><point>[[500, 300]]</point></answer>"
+        )
+        result = _parse_output(raw, Ability.OFG)
         assert "handle faces right" in result.reasoning
         assert result.has_points
 
-    def test_multiple_point_tags(self):
-        raw = "<point>100, 200</point> then <point>300, 400</point>"
-        result = _parse_output(raw, Ability.VTG, img_w=1000, img_h=1000)
-        assert result.n_points == 2
+    def test_no_points(self):
+        raw = "<think>I cannot determine the grasp point.</think><answer></answer>"
+        result = _parse_output(raw, Ability.OFG)
+        assert result.n_points == 0
+        assert not result.has_points
 
-    def test_coordinate_scaling(self):
-        """Coordinates in [0,1000] should scale to image dimensions."""
-        raw = "<point>500, 500</point>"
-        result = _parse_output(raw, Ability.OFG, img_w=1920, img_h=1080)
-        u, v = result.points_px[0]
-        assert abs(u - 960.0) < 0.1  # 500/1000 * 1920
-        assert abs(v - 540.0) < 0.1  # 500/1000 * 1080
+    def test_raw_output_preserved(self):
+        raw = "<think>ok</think><answer><point>[[10, 20]]</point></answer>"
+        result = _parse_output(raw, Ability.REG)
+        assert result.raw_output == raw
+
+    def test_vtg_eight_points(self):
+        coords = ", ".join(f"[{i*10}, {i*5}]" for i in range(8))
+        raw = f"<think>plan</think><answer><point>[{coords}]</point></answer>"
+        result = _parse_output(raw, Ability.VTG)
+        assert result.n_points == 8
+        assert result.points_px[7] == (70.0, 35.0)
 
 
 class TestPointingResult:
     def test_properties(self):
-        from vlm_mppi.model import PointingResult
-
         r = PointingResult(ability=Ability.OFG, points_px=[(1.0, 2.0), (3.0, 4.0)])
         assert r.has_points
         assert r.n_points == 2
 
     def test_empty(self):
-        from vlm_mppi.model import PointingResult
-
         r = PointingResult(ability=Ability.REG)
         assert not r.has_points
         assert r.n_points == 0

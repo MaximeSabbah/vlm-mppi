@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -25,28 +27,43 @@ class Ability(str, Enum):
     VTG = "VTG"  # Visual Trace Generation — generate a motion trajectory
 
 
-# Prompt templates per ability. These follow the conventions from the
-# Embodied-R1 paper (Yuan et al., ICLR 2026).
+# Official prompt templates from Yuan et al., ICLR 2026.
+# Source: https://github.com/pickxiguapi/Embodied-R1/blob/main/inference_example.py
+# Output format: <think>...</think><answer><point>[[x1,y1],...]</point></answer>
+# Coordinates are in pixel space (not normalised).
 PROMPTS: dict[Ability, str] = {
     Ability.REG: (
-        "In the given image, the task is: '{instruction}'. "
-        "Please think step by step, then point to the referred object."
-    ),
-    Ability.RRG: (
-        "In the given image, the task is: '{instruction}'. "
-        "Please think step by step, reason about the spatial layout, "
-        "and point to the target placement region."
+        "Provide one or more points coordinate of objects region {instruction}. "
+        "The results are presented in a format <point>[[x1,y1], [x2,y2], ...]</point>. "
+        "You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
+        "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags. "
+        "The answer consists only of several coordinate points, with the overall format being: "
+        "<think> reasoning process here </think><answer><point>[[x1, y1], [x2, y2], ...]</point></answer>"
     ),
     Ability.OFG: (
-        "In the given image, the task is: '{instruction}'. "
-        "Please think step by step, and point to the functional part "
-        "of the object that should be grasped or interacted with."
+        "Please provide the 2D points coordinate of the region this sentence describes: {instruction}. "
+        "The results are presented in a format <point>[[x1,y1], [x2,y2], ...]</point>. "
+        "You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
+        "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags. "
+        "The answer consists only of several coordinate points, with the overall format being: "
+        "<think> reasoning process here </think><answer><point>[[x1, y1], [x2, y2], ...]</point></answer>"
+    ),
+    Ability.RRG: (
+        "You are currently a robot performing robotic manipulation tasks. The task instruction is: {instruction}. "
+        "Use 2D points to mark the target location where the object you need to manipulate in the task should ultimately be moved. "
+        "You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
+        "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags. "
+        "The answer consists only of several coordinate points, with the overall format being: "
+        "<think> reasoning process here </think><answer><point>[[x1, y1], [x2, y2], ...]</point></answer>"
     ),
     Ability.VTG: (
-        "In the given image, the task is: '{instruction}'. "
-        "Please think step by step, reason about the manipulation process, "
-        "and generate a visual trace (sequence of points) showing the motion "
-        "of the target object from the current position to the goal."
+        "You are currently a robot performing robotic manipulation tasks. The task instruction is: {instruction}. "
+        "Use 2D points to mark the manipulated object-centric waypoints to guide the robot to successfully complete the task. "
+        "You must provide the points in the order of the trajectory, and the number of points must be 8. "
+        "You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
+        "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags. "
+        "The answer consists only of several coordinate points, with the overall format being: "
+        "<think> reasoning process here </think><answer><point>[[x1, y1], [x2, y2], ..., [x8, y8]]</point></answer>."
     ),
 }
 
@@ -92,12 +109,22 @@ class EmbodiedR1:
         config = config or ModelConfig()
         logger.info("Loading %s ...", config.model_id)
 
+        attn = "flash_attention_2" if config.flash_attn2 else None
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             config.model_id,
             torch_dtype=config.torch_dtype,
             device_map=config.device_map,
+            local_files_only=config.local_files_only,
+            attn_implementation=attn,
         )
-        processor = AutoProcessor.from_pretrained(config.model_id)
+        processor = AutoProcessor.from_pretrained(
+            config.model_id,
+            local_files_only=config.local_files_only,
+        )
+
+        if config.torch_compile:
+            logger.info("Compiling model with torch.compile (first inference will be slow)...")
+            model = torch.compile(model, mode="reduce-overhead")
 
         logger.info("Model loaded on %s", next(model.parameters()).device)
         return cls(model, processor, config)
@@ -118,16 +145,14 @@ class EmbodiedR1:
         Returns:
             Parsed PointingResult with pixel-space coordinates.
         """
-        from qwen_vl_utils import process_vision_info
-
-        image_uri = self._resolve_image(image)
+        pil_image = self._load_pil(image)
         prompt_text = PROMPTS[ability].format(instruction=instruction)
 
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image_uri},
+                    {"type": "image", "image": pil_image},
                     {"type": "text", "text": prompt_text},
                 ],
             }
@@ -136,30 +161,27 @@ class EmbodiedR1:
         text = self._processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        image_inputs, video_inputs = process_vision_info(messages)
 
         inputs = self._processor(
             text=[text],
-            images=image_inputs,
-            videos=video_inputs,
+            images=[pil_image],
             padding=True,
             return_tensors="pt",
         ).to(self._model.device)
 
         with torch.inference_mode():
             output_ids = self._model.generate(
-                **inputs, max_new_tokens=self._config.max_new_tokens
+                **inputs,
+                max_new_tokens=self._config.max_new_tokens,
+                repetition_penalty=self._config.repetition_penalty,
+                do_sample=False,
             )
 
         # Strip prompt tokens
-        generated = output_ids[0][inputs.input_ids.shape[1] :]
+        generated = output_ids[0][inputs.input_ids.shape[1]:]
         raw_output = self._processor.decode(generated, skip_special_tokens=True)
 
-        # Get image dimensions for coordinate conversion
-        pil_image = self._load_pil(image)
-        w, h = pil_image.size
-
-        return _parse_output(raw_output, ability, w, h)
+        return _parse_output(raw_output, ability)
 
     def point_all(
         self,
@@ -191,50 +213,46 @@ class EmbodiedR1:
     # ── helpers ───────────────────────────────────────────
 
     @staticmethod
-    def _resolve_image(image: str | Path | Image.Image) -> str:
-        if isinstance(image, Image.Image):
-            import tempfile
-
-            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-            image.save(tmp.name)
-            return f"file://{tmp.name}"
-        return f"file://{Path(image).resolve()}"
-
-    @staticmethod
     def _load_pil(image: str | Path | Image.Image) -> Image.Image:
         if isinstance(image, Image.Image):
             return image
-        return Image.open(image)
+        return Image.open(image).convert("RGB")
 
 
 # ── output parsing ────────────────────────────────────────────
 
 
-def _parse_output(raw: str, ability: Ability, img_w: int, img_h: int) -> PointingResult:
+def _parse_output(raw: str, ability: Ability) -> PointingResult:
     """Extract pixel coordinates from Embodied-R1's text output.
 
-    Coordinates follow Qwen2.5-VL convention: normalized to [0, 1000].
-    """
-    import re
+    Official format (Yuan et al., ICLR 2026):
+        <think> reasoning </think><answer><point>[[x1,y1],[x2,y2],...]</point></answer>
 
+    Coordinates are in pixel space (not normalised to [0,1000]).
+    """
     result = PointingResult(ability=ability, raw_output=raw)
 
-    # Reasoning: everything before the first coordinate pattern
-    split = re.split(r"<point>|\(\d{1,4}\s*,", raw, maxsplit=1)
-    if split:
-        result.reasoning = split[0].strip()
+    # Extract reasoning from <think> block
+    think_match = re.search(r"<think>(.*?)</think>", raw, re.DOTALL)
+    if think_match:
+        result.reasoning = think_match.group(1).strip()
 
-    # <point>x, y</point> format (primary)
-    matches = re.findall(r"<point>\s*(\d+)\s*,\s*(\d+)\s*</point>", raw)
+    # Extract coordinate list from <answer><point>[[...]]</point></answer>
+    answer_match = re.search(r"<answer>(.*?)</answer>", raw, re.DOTALL)
+    answer_text = answer_match.group(1).strip() if answer_match else raw
 
-    # (x, y) fallback — common in VTG traces
-    if not matches:
-        matches = re.findall(r"\((\d+)\s*,\s*(\d+)\)", raw)
-
-    # Convert normalized [0, 1000] → pixel coordinates
-    for x_str, y_str in matches:
-        u = int(x_str) / 1000.0 * img_w
-        v = int(y_str) / 1000.0 * img_h
-        result.points_px.append((u, v))
+    point_match = re.search(r"<point>(.*?)</point>", answer_text, re.DOTALL)
+    if point_match:
+        coords_str = point_match.group(1).strip()
+        try:
+            coords = ast.literal_eval(coords_str)
+            if isinstance(coords, list):
+                for pt in coords:
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        result.points_px.append((float(pt[0]), float(pt[1])))
+        except (ValueError, SyntaxError):
+            # Fallback: extract all [x, y] pairs with regex
+            for x_str, y_str in re.findall(r"\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]", coords_str):
+                result.points_px.append((float(x_str), float(y_str)))
 
     return result

@@ -1,2 +1,4 @@
-*
-!.gitignore
+# Keep scene images and official examples in version control.
+# Ignore large annotation files or raw dataset dumps if added later.
+*.json
+*.csv

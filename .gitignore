@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+.pytest_cache
 
 # Model weights (large files — do NOT commit)
 models/
@@ -24,4 +25,5 @@ Thumbs.db
 
 # Logs & outputs
 *.log
+outputs/
 

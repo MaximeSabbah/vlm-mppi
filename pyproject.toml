@@ -8,6 +8,7 @@ authors = [{ name = "Maxime Sabbah" }]
 
 dependencies = [
     "torch>=2.1",
+    "torchvision>=0.16",
     "transformers>=4.51",
     "accelerate>=0.30",
     "qwen-vl-utils[decord]",

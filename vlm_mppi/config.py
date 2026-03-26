@@ -11,7 +11,11 @@ class ModelConfig:
     model_id: str = "IffYuan/Embodied-R1-3B-v1"
     torch_dtype: str = "auto"
     device_map: str = "auto"
-    max_new_tokens: int = 2048
+    max_new_tokens: int = 4096       # official default (model needs room for <think> block)
+    repetition_penalty: float = 1.05 # official default; prevents token-level repetition
+    flash_attn2: bool = False        # enable Flash Attention 2 (requires nvcc + flash-attn package)
+    torch_compile: bool = False      # torch.compile for ~20-40% speedup (no extra deps, slow first run)
+    local_files_only: bool = False   # set True to skip HuggingFace network checks
 
 
 @dataclass

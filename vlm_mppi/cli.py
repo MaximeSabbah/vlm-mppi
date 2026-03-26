@@ -7,6 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
+from vlm_mppi.config import ModelConfig
 from vlm_mppi.model import Ability, EmbodiedR1
 from vlm_mppi.viz import draw_results, print_results
 
@@ -27,6 +28,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--save", type=Path, default=None, help="Save visualization to this path")
     parser.add_argument("--no-show", action="store_true", help="Don't display the plot")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print full model output")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Load model from local HuggingFace cache without network checks",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -41,7 +47,7 @@ def main(argv: list[str] | None = None) -> None:
 
     abilities = [Ability(a) for a in args.abilities]
 
-    model = EmbodiedR1.load()
+    model = EmbodiedR1.load(ModelConfig(local_files_only=args.offline))
     results = model.point_all(args.image, args.instruction, abilities)
 
     print_results(results)
